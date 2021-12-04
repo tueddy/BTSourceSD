@@ -47,30 +47,6 @@ int32_t get_data_channels(Frame *frame, int32_t channel_len) {
     return item_size / 2;   
 }
 
-/*
-//int a2dp_input_data_callback( unsigned char* data, int dataLength ){
-int32_t get_data_channels(Frame *frame, int32_t channel_len) { 
-   if (channel_len < 0 || frame == NULL)return 0;  
-   size_t itemSize = 0;
-   Frame* ringBufferItem = (Frame*)xRingbufferReceiveUpTo( audioRingBuffer, &itemSize, 0, channel_len); 
-   if( ringBufferItem == NULL ){
-   	printf("ringBufferItem is NULL\n");
-   	return 0;
-   }
-   if( itemSize != channel_len ){
-   	printf( "a2dp_input_data_callback itemSize != dataLength (%u != %u)\n", itemSize, channel_len );
-   	
-   	vRingbufferReturnItem( audioRingBuffer, ringBufferItem );
-   	return 0;
-   }
-   
-   memcpy( frame, ringBufferItem, itemSize );
-   
-   vRingbufferReturnItem( audioRingBuffer, ringBufferItem );
-      
-   return itemSize;
-}
-*/
 
 // Bluetooth connection state changed
 void connection_state_changed(esp_a2d_connection_state_t state, void *ptr){
