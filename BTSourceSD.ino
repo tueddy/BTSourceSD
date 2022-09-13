@@ -1,4 +1,4 @@
-#include "Arduino.h"
+#include <Arduino.h>
 #include "Audio.h"
 #include "SPI.h"
 #include "SD.h"
@@ -11,6 +11,7 @@
 #define I2S_BCLK      27
 #define I2S_LRC       26
 
+#define BT_NAME "MI Portable Bluetooth Speaker"
 
 Audio audio;
 BluetoothA2DPSource a2dp_source;
@@ -30,21 +31,21 @@ int32_t get_data_channels(Frame *frame, int32_t channel_len) {
         return 0;
     };
 
-    size_t item_size = 0;
-    int16_t *item;
-    item = (int16_t *)xRingbufferReceiveUpTo(audioRingBuffer, &item_size, 0, channel_len * 2);
-    if (item != NULL) {
-        if (channel_len  != (item_size / 2)) {
-   	        printf( "a2dp_input_data_callback itemSize != dataLength (%u != %u)\n", item_size, channel_len );
+    size_t sampleSize = 0;
+    uint8_t* sampleBuff;
+    sampleBuff = (uint8_t *)xRingbufferReceiveUpTo(audioRingBuffer, &sampleSize, (portTickType)portMAX_DELAY, channel_len * 4);
+    if (sampleBuff != NULL) {
+        if (channel_len  != (sampleSize / 4)) {
+   	        printf( "a2dp_input_data_callback itemSize != dataLength (%u != %u)\n", sampleSize, channel_len );
         };
         // fill the channel data
-        for (int sample = 0; sample < (item_size / 2); ++sample) {
-            frame[sample].channel1 = item[sample * 2];
-            frame[sample].channel2 = item[sample * 2 + 1];
+        for (int sample = 0; sample < (channel_len); ++sample) {
+            frame[sample].channel1 = (sampleBuff[sample * 4 + 3] << 8) | sampleBuff[sample * 4 + 2];
+            frame[sample].channel2 = (sampleBuff[sample * 4 + 1] << 8) | sampleBuff[sample * 4];
         }
-        vRingbufferReturnItem(audioRingBuffer, (void *)item);
+        vRingbufferReturnItem(audioRingBuffer, (void *)sampleBuff);
     };
-    return item_size / 2;   
+    return channel_len;   
 }
 
 
@@ -63,36 +64,44 @@ void audio_state_changed(esp_a2d_audio_state_t state, void *ptr){
 
 void setup() {
     Serial.begin(115200);
+    Serial.println("");
+    Serial.println("BTSource");
+    Serial.println("");
+    Serial.print("ESP-IDF version: ");
+    Serial.println(String(ESP.getSdkVersion()));
     // create audio buffer
     audioRingBuffer =  xRingbufferCreate(8192, RINGBUF_TYPE_BYTEBUF);
     //  setuo BT source
     a2dp_source.set_on_connection_state_changed(connection_state_changed);
     a2dp_source.set_on_audio_state_changed(audio_state_changed);
-    a2dp_source.start("MI Portable Bluetooth Speaker", get_data_channels);  
-    a2dp_source.set_volume(18);
-    //  start SD
-    pinMode(2, INPUT_PULLUP);
-    SPI.begin(14, 2, 15);
-    if(!SD.begin(13)){
+    a2dp_source.start(BT_NAME, get_data_channels);  
+    a2dp_source.set_volume(15);
+    //  start SD (SPI mode)
+    pinMode(12, OUTPUT);
+    pinMode(14, OUTPUT);
+    digitalWrite(12, HIGH);
+    digitalWrite(14, HIGH);
+    if (!SD.begin(4)) {   
         Serial.println("Card Mount Failed");
         return;
     }
-
-
+    Serial.println("SD mounted");
     // setup audio
     audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio.setVolume(20); // 0...21
-    // start  audio
- //   audio.connecttoFS(SD, "/test.mp3");
 }
 
 void loop()
 {
     audio.loop();
-    if ((!audio.isRunning()) && (a2dp_source.is_connected())) {
-        // start audio playback
-        audio.connecttoFS(SD, "/test.mp3");
-   }
+    if (a2dp_source.is_connected()) {
+        if (!audio.isRunning()) {
+            // start audio playback
+            Serial.println("connecttoFS");
+            audio.connecttoFS(SD, "/test.mp3");  //48khz.wav");//"stereo-test.mp3");//
+        } else {
+        //
+        }
+   } 
 }
 
 // optional
@@ -105,9 +114,9 @@ void audio_info(const char *info){
 
 
 void audio_process_extern(int16_t* buff, uint16_t len, bool *continueI2S){
-    *continueI2S = true;
+    *continueI2S = (!a2dp_source.is_connected());
     if (len) {
         // fill ringbuffer with audio data
-        xRingbufferSend(audioRingBuffer, buff, len * sizeof(int16_t), 0);
+        xRingbufferSend(audioRingBuffer, buff, len * 4, (portTickType)portMAX_DELAY);
     }    
 }
