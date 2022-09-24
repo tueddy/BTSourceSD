@@ -3,6 +3,7 @@
 #include "SPI.h"
 #include "SD.h"
 #include "FS.h"
+#include "freertos/task.h"
 #include <BluetoothA2DPSource.h>
 #include "freertos/ringbuf.h"
 
@@ -14,7 +15,6 @@
 #define BT_NAME "My POGS Wireless Headphone"
 //#define BT_NAME "MI Portable Bluetooth Speaker"
 
-Audio audio;
 BluetoothA2DPSource a2dp_source;
 RingbufHandle_t audioRingBuffer;
 
@@ -60,6 +60,32 @@ void audio_state_changed(esp_a2d_audio_state_t state, void *ptr){
   Serial.println(a2dp_source.to_str(state));
 }
 
+void audioTask(void *parameter) {
+  static Audio *audio = new Audio();
+  // setup audio
+  audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio->setI2SCommFMT_LSB(true);
+  while(true){    
+    audio->loop();
+    // vTaskDelay(portTICK_PERIOD_MS * 1); do not delay here!
+    if (a2dp_source.is_connected()) {
+        if (!audio->isRunning()) {
+            // start audio playback
+            Serial.println("connecttoFS");
+//            audio.connecttoFS(SD, "/Dingi und der Containerdieb.mp3");  
+            audio->connecttoFS(SD, "/test.mp3");      
+//            audio.connecttoFS(SD, "/Häschen_Hüpf.mp3");  
+//            audio.connecttoFS(SD, "/Rabe.mp3");  
+//            audio.connecttoFS(SD, "stereo-test.mp3");
+        } else {
+            ;
+        }
+   } 
+  } 
+  vTaskDelete(NULL);
+}
+
+
 
 void setup() {
     Serial.begin(115200);
@@ -74,7 +100,8 @@ void setup() {
     //  setuo BT source
     a2dp_source.set_on_connection_state_changed(connection_state_changed);
     a2dp_source.set_on_audio_state_changed(audio_state_changed);
-    a2dp_source.set_auto_reconnect(false);
+    a2dp_source.set_task_core(0);
+ //   a2dp_source.set_auto_reconnect(false);
     a2dp_source.start(BT_NAME, get_data_channels);  
     // a2dp_source.set_task_core(11); /
     a2dp_source.set_volume(64); // BT-source volume
@@ -88,25 +115,30 @@ void setup() {
         return;
     }
     Serial.println("SD mounted");
-    // setup audio
-    audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+    xTaskCreatePinnedToCore(
+        audioTask,             /* Function to implement the task */
+        "audioplay",           /* Name of the task */
+        5500,                  /* Stack size in words */
+        NULL,                  /* Task input parameter */
+        2 | portPRIVILEGE_BIT, /* Priority of the task */
+        NULL,                  /* Task handle. */
+        1                      /* Core where the task should run */
+    );
 }
+
 
 void loop()
 {
-    audio.loop();
-    if (a2dp_source.is_connected()) {
-        if (!audio.isRunning()) {
-            // start audio playback
-            Serial.println("connecttoFS");
-            audio.connecttoFS(SD, "/test.mp3");  
-//            audio.connecttoFS(SD, "/Häschen_Hüpf.mp3");  
-//            audio.connecttoFS(SD, "/Rabe.mp3");  
-//            audio.connecttoFS(SD, "stereo-test.mp3");
-        } else {
-            ;
-        }
-   } 
+    // Receive data from ring buffer
+    size_t len{};
+    #if ESP_ARDUINO_VERSION_MAJOR >= 2
+        vRingbufferGetInfo(audioRingBuffer, nullptr, nullptr, nullptr, nullptr, &len);
+    #else
+        vRingbufferGetInfo(audioRingBuffer, nullptr, nullptr, nullptr, &len);
+    #endif  
+    if (len > 0) {
+        Serial.println(len); 
+    } 
 }
 
 // optional
